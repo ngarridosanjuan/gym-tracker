@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IronTrack Pro v6.7 (AI Vision)</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body {
+            background-color: #0f172a; /* Slate 900 */
+            color: #e2e8f0; /* Slate 200 */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding-bottom: env(safe-area-inset-bottom);
+            overflow: hidden; /* Prevent body scroll */
+            height: 100vh;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; margin: 0; 
+        }
+        /* Animation for AI Scanning */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+        .scanning-pulse {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- Constants ---
+        const STORAGE_KEY_WORKOUTS = 'gymTracker_workouts_v6.6';
+        const STORAGE_KEY_STREAK = 'gymTracker_streak_v6.6';
+        const STORAGE_KEY_TEMPLATES = 'gymTracker_templates_v6.6';
+        const STORAGE_KEY_SCHEDULES = 'gymTracker_schedules_v6.6';
+        const STORAGE_KEY_BODYWEIGHT = 'gymTracker_bodyweight_v6.6';
+        const STORAGE_KEY_PRS = 'gymTracker_prs_v6.6';
+        const STORAGE_KEY_API = 'gymTracker_apiKey_v1'; // New Key for API
+
+        const FOOD_DB = [
+            { name: "Chicken Breast (100g)", cal: 165, pro: 31 },
+            { name: "Rice (White, 100g cooked)", cal: 130, pro: 2.7 },
+            { name: "Egg (Large)", cal: 78, pro: 6 },
+            { name: "Whey Protein (1 scoop)", cal: 120, pro: 24 },
+            { name: "Banana (Medium)", cal: 105, pro: 1.3 },
+            { name: "Oats (50g)", cal: 190, pro: 6 },
+            { name: "Greek Yogurt (150g)", cal: 90, pro: 15 },
+            { name: "Salmon (100g)", cal: 208, pro: 20 },
+            { name: "Beef Mince (100g)", cal: 250, pro: 26 },
+            { name: "Almonds (30g)", cal: 170, pro: 6 },
+            { name: "Milk (200ml)", cal: 100, pro: 7 },
+            { name: "Tuna (Can)", cal: 130, pro: 28 },
+            { name: "Potato (Medium)", cal: 160, pro: 4 },
+            { name: "Broccoli (100g)", cal: 34, pro: 2.8 },
+            { name: "Avocado (Half)", cal: 160, pro: 2 }
+        ];
+
+        const getFormattedDateKey = (date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const isToday = (dateString) => dateString === getFormattedDateKey(new Date());
+        const isPastDate = (dateString) => dateString < getFormattedDateKey(new Date());
+
+        // --- Shared Components ---
+        const PlateCalculator = ({ weight }) => {
+            if (!weight || weight < 20) return null;
+            const barWeight = 20;
+            let remaining = (weight - barWeight) / 2;
+            const plates = [];
+            [25, 20, 15, 10, 5, 2.5, 1.25].forEach(plate => {
+                while (remaining >= plate) { plates.push(plate); remaining -= plate; }
+            });
+            return (
+                <div className="flex items-center gap-1 mt-1 overflow-x-auto pb-1">
+                    <div className="h-8 w-1 bg-gray-500 rounded-full mr-1"></div>
+                    {plates.map((p, i) => (
+                    <div key={i} className={`h-8 flex items-center justify-center text-[8px] font-bold text-black rounded-sm border-l border-black/20 ${p >= 20 ? 'w-3 bg-red-500' : p >= 15 ? 'w-3 bg-blue-500' : p >= 10 ? 'w-2 bg-green-500' : 'w-2 bg-gray-300'}`}></div>
+                    ))}
+                    <span className="text-xs text-gray-400 ml-2">({plates.length}/side)</span>
+                </div>
+            );
+        };
+
+        const TimerComponent = () => {
+            const [timeLeft, setTimeLeft] = useState(null);
+            const [isActive, setIsActive] = useState(false);
+            const [initialTime, setInitialTime] = useState(60);
+            useEffect(() => {
+                let interval = null;
+                if (isActive && timeLeft > 0) interval = setInterval(() => setTimeLeft(t => t - 1), 1000);
+                else if (timeLeft === 0) {
+                    setIsActive(false);
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(e => {});
+                }
+                return () => clearInterval(interval);
+            }, [isActive, timeLeft]);
+            const startTimer = (seconds) => { setInitialTime(seconds); setTimeLeft(seconds); setIsActive(true); };
+            const formatTime = (seconds) => { const m = Math.floor(seconds / 60); const s = seconds % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
+            return (
+                <div className="fixed bottom-24 right-4 z-50">
+                    {!isActive && timeLeft === null ? (
+                    <button onClick={() => startTimer(60)} className="bg-blue-600 w-12 h-12 rounded-full shadow-lg hover:bg-blue-500 flex items-center justify-center text-white"><i className="fa-solid fa-stopwatch text-xl"></i></button>
+                    ) : (
+                    <div className="glass-panel p-4 rounded-xl shadow-2xl flex flex-col items-center gap-2 min-w-[140px]">
+                    <div className="text-3xl font-mono font-bold text-blue-400">{formatTime(timeLeft || initialTime)}</div>
+                    <div className="flex gap-2">
+                    <button onClick={() => setIsActive(!isActive)} className="bg-slate-700 px-3 py-1 rounded text-sm text-white">{isActive ? 'Pause' : 'Resume'}</button>
+                    <button onClick={() => { setIsActive(false); setTimeLeft(null); }} className="bg-red-900/50 px-3 py-1 rounded text-sm text-red-200">Stop</button>
+                    </div>
+                    <div className="flex gap-1 mt-1">{[30, 60, 90, 120].map(t => <button key={t} onClick={() => startTimer(t)} className="text-xs bg-slate-800 px-2 py-1 rounded hover:bg-slate-700 text-white">{t}s</button>)}</div>
+                    </div>
+                    )}
+                </div>
+            );
+        };
+
+        const NutritionCard = ({ meals, onAddMeal, onRemoveMeal, readOnly }) => {
+            const [searchTerm, setSearchTerm] = useState("");
+            const [showSuggestions, setShowSuggestions] = useState(false);
+            const [newMeal, setNewMeal] = useState({ name: '', calories: '', protein: '' });
+            const [isScanning, setIsScanning] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const totalCals = meals.reduce((sum, m) => sum + Number(m.calories || 0), 0);
+            const totalPro = meals.reduce((sum, m) => sum + Number(m.protein || 0), 0);
+            const filteredFood = useMemo(() => !searchTerm ? [] : FOOD_DB.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase())), [searchTerm]);
+            
+            const handleAdd = () => { if (newMeal.name && newMeal.calories) { onAddMeal({ ...newMeal, id: Date.now() }); setNewMeal({ name: '', calories: '', protein: '' }); setSearchTerm(""); } };
+
+            // --- AI VISION LOGIC ---
+            const handleCameraClick = () => {
+                fileInputRef.current.click();
+            };
+
+            const handleFileChange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const apiKey = localStorage.getItem(STORAGE_KEY_API);
+                if (!apiKey) {
+                    alert("Please save your OpenAI API Key in Settings first!");
+                    return;
+                }
+
+                setIsScanning(true);
+
+                // Convert to Base64
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64Image = reader.result;
+                    
+                    try {
+                        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: "gpt-4o-mini", // Fast & Cheap
+                                messages: [
+                                    {
+                                        role: "user",
+                                        content: [
+                                            { type: "text", text: "Analyze this food image. Identify the main item and estimate total calories and protein (g). Return ONLY a JSON object with keys: 'name' (string, short concise name), 'calories' (number), 'protein' (number). Do not include markdown formatting." },
+                                            { type: "image_url", image_url: { url: base64Image } }
+                                        ]
+                                    }
+                                ],
+                                max_tokens: 100
+                            })
+                        });
+
+                        const data = await response.json();
+                        if (data.choices && data.choices[0]) {
+                            let content = data.choices[0].message.content;
+                            // Clean up if AI adds markdown code blocks
+                            content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+                            const result = JSON.parse(content);
+                            
+                            setNewMeal({
+                                name: result.name || "Scanned Food",
+                                calories: result.calories || 0,
+                                protein: result.protein || 0
+                            });
+                            setSearchTerm(result.name || "Scanned Food");
+                        }
+                    } catch (error) {
+                        console.error("AI Scan Error:", error);
+                        alert("Failed to scan food. Check your API Key or internet.");
+                    } finally {
+                        setIsScanning(false);
+                    }
+                };
+                reader.readAsDataURL(file);
+            };
+
+            return (
+                <div className="glass-panel p-4 rounded-xl mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold flex items-center gap-2 text-green-400"><i className="fa-solid fa-utensils"></i> Nutrition</h3>
+                    <div className="text-right text-xs text-gray-400"><div>{totalCals} kcal</div><div>{totalPro}g protein</div></div>
+                    </div>
+                    {!readOnly && (
+                    <div className="mb-4 space-y-2 relative">
+                        {/* Hidden File Input */}
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            capture="environment"
+                            ref={fileInputRef}
+                            onChange={handleFileChange}
+                            className="hidden"
+                        />
+
+                        <div className="relative flex gap-2">
+                            <div className="flex-1 flex items-center bg-slate-800 rounded-lg px-3 border border-slate-700">
+                                <i className="fa-solid fa-search text-gray-400 mr-2"></i>
+                                <input type="text" placeholder="Search food..." className="bg-transparent w-full py-2 outline-none text-sm text-white" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setNewMeal({...newMeal, name: e.target.value}); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} />
+                                {searchTerm && <button onClick={() => { setSearchTerm(""); setShowSuggestions(false); }}><i className="fa-solid fa-times text-gray-400"></i></button>}
+                            </div>
+                            
+                            {/* AI Camera Button */}
+                            <button 
+                                onClick={handleCameraClick}
+                                disabled={isScanning}
+                                className={`bg-purple-600 hover:bg-purple-500 text-white px-3 rounded-lg flex items-center justify-center transition-all ${isScanning ? 'scanning-pulse' : ''}`}
+                            >
+                                {isScanning ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-camera"></i>}
+                            </button>
+                        </div>
+
+                        {showSuggestions && searchTerm && filteredFood.length > 0 && (
+                        <div className="absolute top-10 left-0 right-0 bg-slate-800 border border-slate-700 rounded-lg mt-1 z-20 max-h-40 overflow-y-auto shadow-xl">{filteredFood.map((food, idx) => <div key={idx} className="p-2 hover:bg-slate-700 cursor-pointer text-sm flex justify-between text-white" onClick={() => { setNewMeal({ name: food.name, calories: food.cal, protein: food.pro }); setSearchTerm(food.name); setShowSuggestions(false); }}><span>{food.name}</span><span className="text-gray-400 text-xs">{food.cal}kcal</span></div>)}</div>
+                        )}
+                        
+                        <div className="flex gap-2">
+                            <input type="number" placeholder="Kcal" className="bg-slate-800 rounded-lg p-2 w-20 text-sm border border-slate-700 text-white" value={newMeal.calories} onChange={(e) => setNewMeal({...newMeal, calories: e.target.value})} />
+                            <input type="number" placeholder="Prot (g)" className="bg-slate-800 rounded-lg p-2 w-20 text-sm border border-slate-700 text-white" value={newMeal.protein} onChange={(e) => setNewMeal({...newMeal, protein: e.target.value})} />
+                            <button onClick={handleAdd} className="bg-green-600 text-white p-2 rounded-lg flex-1"><i className="fa-solid fa-plus"></i></button>
+                        </div>
+                    </div>
+                    )}
+                    <div className="space-y-2 max-h-40 overflow-y-auto">{meals.length === 0 ? <div className="text-center text-gray-500 text-sm py-2">No meals logged</div> : meals.map(meal => <div key={meal.id} className="flex justify-between items-center bg-slate-800/50 p-2 rounded text-sm"><div className="truncate flex-1 pr-2"><div className="font-medium text-white">{meal.name}</div><div className="text-xs text-gray-400">{meal.calories} kcal • {meal.protein}g pro</div></div>{!readOnly && <button onClick={() => onRemoveMeal(meal.id)} className="text-red-400"><i className="fa-solid fa-trash"></i></button>}</div>)}</div>
+                </div>
+            );
+        };
+
+        const BarChart = ({ data, labelKey, valueKey, color, title }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || typeof Chart === 'undefined') return;
+                if (chartRef.current) chartRef.current.destroy();
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                    labels: data.map(d => d[labelKey]),
+                    datasets: [{ label: title, data: data.map(d => d[valueKey]), backgroundColor: color, borderRadius: 4 }]
+                    },
+                    options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8' } } }
+                    }
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [data]);
+            return <div className="h-48 w-full"><canvas ref={canvasRef}></canvas></div>;
+        };
+
+        const LineChart = ({ data, labelKey, valueKey, color, title }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || typeof Chart === 'undefined') return;
+                if (chartRef.current) chartRef.current.destroy();
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                    labels: data.map(d => d[labelKey]),
+                    datasets: [{ label: title, data: data.map(d => d[valueKey]), borderColor: color, backgroundColor: color, tension: 0.3, pointRadius: 3 }]
+                    },
+                    options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8' } } }
+                    }
+                });
+                return () => { if (chartRef.current) chartRef.current.destroy(); };
+            }, [data]);
+            return <div className="h-48 w-full"><canvas ref={canvasRef}></canvas></div>;
+        };
+
+        // --- Editor Components ---
+        const DailyEditor = ({ editData, onSave, onCancel }) => {
+            const [name, setName] = useState(editData?.name || '');
+            const [exercises, setExercises] = useState(editData?.exercises || []);
+            const [newEx, setNewEx] = useState({ name: '', sets: 3, reps: 10, weight: 40 });
+
+            const addEx = () => { if(newEx.name) { setExercises([...exercises, {...newEx, id: Date.now()}]); setNewEx({ name: '', sets: 3, reps: 10, weight: 40 }); } };
+            const save = () => { if(!name) return alert("Name required"); onSave(name, exercises); };
+
+            return (
+                <div className="space-y-4 animate-fade-in">
+                    <div className="flex items-center gap-2 mb-4"><button onClick={onCancel} className="p-2 bg-slate-800 rounded text-white"><i className="fa-solid fa-arrow-left"></i></button><h2 className="text-xl font-bold text-white">{editData ? 'Edit' : 'New'} Workout Template</h2></div>
+                    <input type="text" placeholder="Template Name (e.g. Leg Day)" className="w-full bg-slate-800 p-3 rounded-lg text-white border border-slate-700" value={name} onChange={e => setName(e.target.value)} />
+                    <div className="space-y-2">{exercises.map((ex, i) => <div key={i} className="bg-slate-800 p-3 rounded flex justify-between items-center text-white"><div><div className="font-bold">{ex.name}</div><div className="text-xs text-slate-400">{ex.sets}x{ex.reps} @ {ex.weight}kg</div></div><button onClick={() => setExercises(exercises.filter((_, idx) => idx !== i))} className="text-red-400"><i className="fa-solid fa-trash"></i></button></div>)}</div>
+                    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700"><div className="mb-2"><input type="text" className="w-full bg-slate-900 p-2 rounded text-white" placeholder="Exercise Name" value={newEx.name} onChange={e => setNewEx({...newEx, name: e.target.value})} /></div><div className="flex gap-2 mb-2"><input type="number" className="w-full bg-slate-900 p-2 rounded text-white" placeholder="Sets" value={newEx.sets} onChange={e => setNewEx({...newEx, sets: Number(e.target.value)})} /><input type="number" className="w-full bg-slate-900 p-2 rounded text-white" placeholder="Reps" value={newEx.reps} onChange={e => setNewEx({...newEx, reps: Number(e.target.value)})} /><input type="number" className="w-full bg-slate-900 p-2 rounded text-white" placeholder="Kg" value={newEx.weight} onChange={e => setNewEx({...newEx, weight: Number(e.target.value)})} /></div><button onClick={addEx} className="w-full bg-blue-600 py-2 rounded font-bold text-white">Add Exercise</button></div>
+                    <button onClick={save} className="w-full bg-green-600 py-3 rounded-lg font-bold text-white text-lg">Save Template</button>
+                </div>
+            );
+        };
+
+        const WeeklyEditor = ({ editData, templates, onSave, onCancel }) => {
+            const [name, setName] = useState(editData?.name || '');
+            const [plan, setPlan] = useState(editData?.plan || {0:'Rest',1:'Rest',2:'Rest',3:'Rest',4:'Rest',5:'Rest',6:'Rest'});
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const save = () => { if(!name) return alert("Name required"); onSave(name, plan); };
+
+            return (
+                <div className="space-y-4 animate-fade-in">
+                    <div className="flex items-center gap-2 mb-4"><button onClick={onCancel} className="p-2 bg-slate-800 rounded text-white"><i className="fa-solid fa-arrow-left"></i></button><h2 className="text-xl font-bold text-white">{editData ? 'Edit' : 'New'} Weekly Schedule</h2></div>
+                    <input type="text" placeholder="Schedule Name (e.g. Bulking Phase 1)" className="w-full bg-slate-800 p-3 rounded-lg text-white border border-slate-700" value={name} onChange={e => setName(e.target.value)} />
+                    <div className="space-y-2">{days.map((day, idx) => <div key={idx} className="flex items-center justify-between bg-slate-800 p-3 rounded-lg text-white"><span className="font-bold w-12">{day}</span><select className="bg-slate-900 text-white p-2 rounded border border-slate-700 flex-1" value={plan[idx] || 'Rest'} onChange={(e) => setPlan({...plan, [idx]: e.target.value})}><option value="Rest">Rest</option>{Object.keys(templates).map(t => <option key={t} value={t}>{t}</option>)}</select></div>)}</div>
+                    <button onClick={save} className="w-full bg-green-600 py-3 rounded-lg font-bold text-white text-lg">Save Schedule</button>
+                </div>
+            );
+        };
+
+        // --- View Components ---
+        const DashboardView = ({ workouts, streak, bodyWeightLog, setBodyWeightLog, setSelectedDate, handleSaveDay, onOpenSettings, prs }) => {
+            const todayKey = getFormattedDateKey(new Date());
+            const todayData = workouts[todayKey] || { exercises: [], meals: [], isRestDay: false };
+            const [bwInput, setBwInput] = useState('');
+            
+            const toggleRestDay = () => {
+                handleSaveDay(todayKey, todayData.exercises, todayData.meals, !todayData.isRestDay);
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in pb-6">
+                    <div className="flex justify-between items-center">
+                    <div><h1 className="text-2xl font-bold text-white">Hello, Athlete</h1><p className="text-slate-400 text-sm">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p></div>
+                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 bg-orange-500/20 px-3 py-1 rounded-full border border-orange-500/50"><i className="fa-solid fa-fire text-orange-500"></i><span className="font-bold text-orange-400">{streak}</span></div>
+                    <button onClick={onOpenSettings} className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 hover:text-white"><i className="fa-solid fa-cog"></i></button>
+                    </div>
+                    </div>
+                    <div className="glass-panel p-4 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-blue-400"><i className="fa-solid fa-weight-scale"></i> <span className="font-bold">Weigh In</span></div>
+                    <div className="flex gap-2"><input type="number" placeholder="kg" className="bg-slate-800 w-20 p-2 rounded border border-slate-700 text-center text-white" value={bwInput} onChange={(e) => setBwInput(e.target.value)} /><button onClick={() => { const newEntry = { date: todayKey, weight: Number(bwInput) }; const filtered = bodyWeightLog.filter(e => e.date !== todayKey); setBodyWeightLog([...filtered, newEntry].sort((a,b) => new Date(a.date) - new Date(b.date))); setBwInput(''); }} className="bg-blue-600 px-3 rounded text-sm font-bold text-white">Save</button></div>
+                    </div>
+                    
+                    <div className={`glass-panel p-5 rounded-xl border-l-4 ${todayData.isRestDay ? 'border-indigo-500' : 'border-blue-500'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">{todayData.isRestDay ? 'Recovery Mode' : "Today's Training"}</h2>
+                    <div className="flex gap-2">
+                    <button onClick={toggleRestDay} className={`text-xs px-3 py-1 rounded-lg transition-colors font-bold ${todayData.isRestDay ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                    {todayData.isRestDay ? 'Active Rest' : 'Set Rest Day'}
+                    </button>
+                    {!todayData.isRestDay && <button onClick={() => setSelectedDate(new Date())} className="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded-lg transition-colors text-white">Edit / Start</button>}
+                    </div>
+                    </div>
+                    
+                    {todayData.isRestDay ? (
+                    <div className="text-center py-8 bg-indigo-900/20 rounded-lg border border-indigo-500/30">
+                    <i className="fa-solid fa-bed text-4xl text-indigo-400 mb-2"></i>
+                    <p className="text-indigo-200 font-bold">Rest & Recover</p>
+                    <p className="text-xs text-indigo-300/70 mt-1">Streak preserved</p>
+                    </div>
+                    ) : (
+                    todayData.exercises.length === 0 ? 
+                    <div className="text-center py-6 text-slate-400"><p>No Plan Set</p></div> : 
+                    <div className="space-y-3">
+                    {todayData.exercises.map((ex, idx) => (
+                    <div key={idx} className={`flex items-center justify-between p-3 rounded-lg ${ex.completed ? 'bg-green-900/20 border border-green-900/50' : 'bg-slate-800/50'}`}>
+                    <div className="flex items-center gap-3">
+                    <button 
+                    onClick={() => {
+                    const updatedExercises = todayData.exercises.map((e, i) => i === idx ? { ...e, completed: !e.completed } : e);
+                    handleSaveDay(todayKey, updatedExercises, todayData.meals, todayData.isRestDay);
+                    }}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${ex.completed ? 'bg-green-500 border-green-500' : 'border-slate-500 hover:border-blue-400'}`}
+                    >
+                    {ex.completed && <i className="fa-solid fa-check text-white text-xs"></i>}
+                    </button>
+                    <div>
+                    <div className={`font-medium ${ex.completed ? 'text-slate-400 line-through' : 'text-white'}`}>{ex.name}</div>
+                    <div className="text-xs text-slate-400">{ex.sets} sets x {ex.reps} reps &nbsp; {ex.weight}kg</div>
+                    {prs[ex.name] && <div className="text-[10px] text-yellow-500 mt-1"><i className="fa-solid fa-trophy"></i> PR: {prs[ex.name]}kg</div>}
+                    </div>
+                    </div>
+                    </div>
+                    ))}
+                    </div>
+                    )}
+                    </div>
+                    <NutritionCard meals={todayData.meals} onAddMeal={(m) => handleSaveDay(todayKey, todayData.exercises, [...todayData.meals, m], todayData.isRestDay)} onRemoveMeal={(id) => handleSaveDay(todayKey, todayData.exercises, todayData.meals.filter(m => m.id !== id), todayData.isRestDay)} readOnly={false} />
+                    <TimerComponent />
+                </div>
+            );
+        };
+
+        const TemplatesView = ({ templates, setTemplates, schedules, setSchedules }) => {
+            const [mode, setMode] = useState('list'); 
+            const [subTab, setSubTab] = useState('daily'); 
+            const [editData, setEditData] = useState(null); 
+
+            if (mode === 'editDaily') {
+                return <DailyEditor editData={editData} onSave={(name, exercises) => { setTemplates(prev => ({...prev, [name]: exercises})); setMode('list'); }} onCancel={() => setMode('list')} />;
+            }
+
+            if (mode === 'editWeekly') {
+                return <WeeklyEditor editData={editData} templates={templates} onSave={(name, plan) => { setSchedules(prev => ({...prev, [name]: plan})); setMode('list'); }} onCancel={() => setMode('list')} />;
+            }
+
+            return (
+                <div className="animate-fade-in pb-6 space-y-6">
+                    <h2 className="text-2xl font-bold mb-4 text-white">Templates Manager</h2>
+                    <div className="flex bg-slate-800 p-1 rounded-lg mb-4"><button onClick={() => setSubTab('daily')} className={`flex-1 py-2 rounded-md text-sm font-bold ${subTab === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Workouts (Daily)</button><button onClick={() => setSubTab('weekly')} className={`flex-1 py-2 rounded-md text-sm font-bold ${subTab === 'weekly' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Schedules (Weekly)</button></div>
+                    {subTab === 'daily' ? (
+                    <div className="space-y-3">
+                    <button onClick={() => { setEditData(null); setMode('editDaily'); }} className="w-full py-3 border-2 border-dashed border-slate-700 rounded-xl text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors font-bold">+ Create New Workout Template</button>
+                    {Object.keys(templates).map(t => <div key={t} className="bg-slate-800 p-4 rounded-xl flex justify-between items-center text-white"><div><div className="font-bold text-lg">{t}</div><div className="text-xs text-slate-400">{templates[t].length} exercises</div></div><div className="flex gap-2"><button onClick={() => { setEditData({name: t, exercises: templates[t]}); setMode('editDaily'); }} className="p-2 bg-slate-700 rounded text-blue-400"><i className="fa-solid fa-pen"></i></button><button onClick={() => { if(confirm('Delete?')) { const n = {...templates}; delete n[t]; setTemplates(n); } }} className="p-2 bg-slate-700 rounded text-red-400"><i className="fa-solid fa-trash"></i></button></div></div>)}
+                    </div>
+                    ) : (
+                    <div className="space-y-3">
+                    <button onClick={() => { setEditData(null); setMode('editWeekly'); }} className="w-full py-3 border-2 border-dashed border-slate-700 rounded-xl text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors font-bold">+ Create New Weekly Schedule</button>
+                    {Object.keys(schedules).map(s => <div key={s} className="bg-slate-800 p-4 rounded-xl flex justify-between items-center text-white"><div className="font-bold text-lg">{s}</div><div className="flex gap-2"><button onClick={() => { setEditData({name: s, plan: schedules[s]}); setMode('editWeekly'); }} className="p-2 bg-slate-700 rounded text-blue-400"><i className="fa-solid fa-pen"></i></button><button onClick={() => { if(confirm('Delete?')) { const n = {...schedules}; delete n[s]; setSchedules(n); } }} className="p-2 bg-slate-700 rounded text-red-400"><i className="fa-solid fa-trash"></i></button></div></div>)}
+                    </div>
+                    )}
+                </div>
+            );
+        };
+
+        const CalendarView = ({ workouts, setSelectedDate }) => {
+            const [viewDate, setViewDate] = useState(new Date());
+            const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+            const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+            const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+            const days = Array(startOffset).fill(null).concat([...Array(daysInMonth).keys()].map(i => i + 1));
+
+            const getDayStatus = (day) => {
+                if (!day) return null;
+                const key = getFormattedDateKey(new Date(viewDate.getFullYear(), viewDate.getMonth(), day));
+                const data = workouts[key];
+                if (!data) return 'empty';
+                if (data.isRestDay) return 'rest';
+                if (data.exercises.length > 0 && data.exercises.every(e => e.completed)) return 'complete';
+                if (data.exercises.length > 0) return 'planned';
+                return 'empty';
+            };
+
+            return (
+                <div className="animate-fade-in pb-6">
+                    <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-white">{viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h2>
+                    <div className="flex gap-2"><button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-2 bg-slate-800 rounded-lg text-white"><i className="fa-solid fa-chevron-left"></i></button><button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-2 bg-slate-800 rounded-lg text-white"><i className="fa-solid fa-chevron-right"></i></button></div>
+                    </div>
+                    <div className="grid grid-cols-7 gap-2 mb-2 text-center text-xs text-slate-400 font-bold"><div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div>SAT</div><div>SUN</div></div>
+                    <div className="grid grid-cols-7 gap-2">
+                    {days.map((day, idx) => {
+                    const status = getDayStatus(day);
+                    let bgClass = 'bg-slate-800/50 text-slate-500';
+                    if (day) {
+                    if (status === 'complete') bgClass = 'bg-green-600 text-white shadow-lg shadow-green-900/50';
+                    else if (status === 'rest') bgClass = 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50';
+                    else if (status === 'planned') bgClass = 'bg-blue-600 text-white';
+                    else bgClass = 'bg-slate-700 text-slate-300 hover:bg-slate-600';
+                    if (isToday(getFormattedDateKey(new Date(viewDate.getFullYear(), viewDate.getMonth(), day)))) bgClass += ' ring-2 ring-white';
+                    }
+                    return <div key={idx} onClick={() => day && setSelectedDate(new Date(viewDate.getFullYear(), viewDate.getMonth(), day))} className={`aspect-square rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${bgClass}`}>{day && <span className="text-sm font-bold">{day}</span>}{day && status === 'complete' && <i className="fa-solid fa-check text-[10px] mt-1"></i>}{day && status === 'rest' && <i className="fa-solid fa-bed text-[10px] mt-1"></i>}</div>;
+                    })}
+                    </div>
+                </div>
+            );
+        };
+
+        const DayModal = ({ date, onClose, workouts, setWorkouts, templates, schedules, handleSaveDay, prs }) => {
+            const dateKey = getFormattedDateKey(date);
+            const dayData = workouts[dateKey] || { exercises: [], meals: [], isRestDay: false };
+            const isReadOnly = isPastDate(dateKey) && !isToday(dateKey);
+            const [exercises, setExercises] = useState(dayData.exercises);
+            const [newEx, setNewEx] = useState({ name: '', sets: 3, reps: 10, weight: 40, completed: false });
+            const [showLoadMenu, setShowLoadMenu] = useState(false);
+            const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+
+            const handleAddExercise = () => { if (newEx.name) { const updated = [...exercises, { ...newEx, id: Date.now() }]; setExercises(updated); handleSaveDay(dateKey, updated, dayData.meals, dayData.isRestDay); setNewEx({ ...newEx, name: '' }); } };
+            const loadTemplate = (templateName) => { if(confirm(`Overwrite today with ${templateName}?`)) { const t = templates[templateName].map(ex => ({...ex, id: Date.now()+Math.random(), completed:false})); setExercises(t); handleSaveDay(dateKey, t, dayData.meals, false); setShowLoadMenu(false); } };
+            const applySchedule = (scheduleName) => {
+                if (confirm(`Apply "${scheduleName}" to THIS WEEK (Mon-Sun)?`)) {
+                    const day = date.getDay();
+                    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                    const monday = new Date(date);
+                    monday.setDate(diff);
+                    const plan = schedules[scheduleName];
+                    for (let i = 0; i < 7; i++) {
+                    const d = new Date(monday);
+                    d.setDate(monday.getDate() + i);
+                    const k = getFormattedDateKey(d);
+                    const templateName = plan[d.getDay()];
+                    let newExercises = [];
+                    let isRest = false;
+                    if (templateName === 'Rest') { isRest = true; }
+                    else if (templateName && templates[templateName]) { newExercises = templates[templateName].map(ex => ({ ...ex, id: Date.now() + Math.random(), completed: false })); }
+                    setWorkouts(prev => ({ ...prev, [k]: { exercises: newExercises, meals: (prev[k]?.meals || []), isRestDay: isRest } }));
+                    }
+                    alert("Schedule applied!");
+                    onClose();
+                }
+            };
+
+            const toggleRestDay = () => {
+                handleSaveDay(dateKey, exercises, dayData.meals, !dayData.isRestDay);
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-slate-900 w-full max-w-md rounded-2xl max-h-[90vh] overflow-y-auto border border-slate-800 shadow-2xl">
+                    <div className="sticky top-0 bg-slate-900/95 backdrop-blur p-4 border-b border-slate-800 flex justify-between items-center z-10"><div><h2 className="text-xl font-bold text-white">{date.toLocaleDateString(undefined, { weekday: 'long' })}</h2><p className="text-sm text-slate-400">{date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</p></div><button onClick={onClose} className="p-2 bg-slate-800 rounded-full text-white"><i className="fa-solid fa-times"></i></button></div>
+                    <div className="p-4 space-y-6">
+                    {!isReadOnly && (
+                    <div className="flex justify-between items-center">
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                    <div className="relative"><button onClick={() => setShowLoadMenu(!showLoadMenu)} disabled={dayData.isRestDay} className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap border ${dayData.isRestDay ? 'bg-slate-800 text-slate-600 border-slate-800 cursor-not-allowed' : 'bg-slate-800 text-white border-slate-700'}`}><i className="fa-solid fa-download"></i> Load Workout</button>{showLoadMenu && (<div className="absolute top-full left-0 mt-2 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 w-48 max-h-40 overflow-y-auto">{Object.keys(templates).length === 0 && <div className="p-2 text-xs text-slate-400">No templates created</div>}{Object.keys(templates).map(t => <div key={t} onClick={() => loadTemplate(t)} className="p-2 hover:bg-slate-700 cursor-pointer text-sm text-white">{t}</div>)}</div>)}</div>
+                    <div className="relative"><button onClick={() => setShowScheduleMenu(!showScheduleMenu)} className="bg-purple-900/50 text-purple-200 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap border border-purple-500/30"><i className="fa-solid fa-calendar-week"></i> Apply Schedule</button>{showScheduleMenu && (<div className="absolute top-full left-0 mt-2 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 w-48 max-h-40 overflow-y-auto">{Object.keys(schedules).length === 0 && <div className="p-2 text-xs text-slate-400">No schedules created</div>}{Object.keys(schedules).map(s => <div key={s} onClick={() => applySchedule(s)} className="p-2 hover:bg-slate-700 cursor-pointer text-sm text-white">{s}</div>)}</div>)}</div>
+                    </div>
+                    <button onClick={toggleRestDay} className={`text-xs px-3 py-2 rounded-lg font-bold ${dayData.isRestDay ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-400'}`}>{dayData.isRestDay ? 'Rest Active' : 'Set Rest'}</button>
+                    </div>
+                    )}
+                    
+                    {dayData.isRestDay ? (
+                    <div className="text-center py-8 bg-indigo-900/20 rounded-lg border border-indigo-500/30">
+                    <i className="fa-solid fa-bed text-4xl text-indigo-400 mb-2"></i>
+                    <p className="text-indigo-200 font-bold">Rest Day</p>
+                    <p className="text-xs text-indigo-300/70 mt-1">Enjoy your recovery!</p>
+                    </div>
+                    ) : (
+                    <div className="space-y-3">{exercises.map((ex) => <div key={ex.id} className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50"><div className="flex items-center justify-between mb-2"><div className="font-bold text-lg text-white">{ex.name}</div>{!isReadOnly && <button onClick={() => { const u = exercises.filter(e => e.id !== ex.id); setExercises(u); handleSaveDay(dateKey, u, dayData.meals, dayData.isRestDay); }} className="text-red-400"><i className="fa-solid fa-trash"></i></button>}</div><div className="flex items-center justify-between"><div className="text-sm text-slate-300"><div>{ex.sets} sets &nbsp; {ex.reps} reps &nbsp; {ex.weight}kg</div>{prs[ex.name] && <div className="text-[10px] text-yellow-500 mt-1"><i className="fa-solid fa-trophy"></i> PR: {prs[ex.name]}kg</div>}<PlateCalculator weight={ex.weight} /></div><button onClick={() => { if(!isReadOnly) { const u = exercises.map(e => e.id === ex.id ? {...e, completed: !e.completed} : e); setExercises(u); handleSaveDay(dateKey, u, dayData.meals, dayData.isRestDay); } }} className={`w-8 h-8 rounded-full border-2 flex items-center justify-center ${ex.completed ? 'bg-green-500 border-green-500' : 'border-slate-500'}`}>{ex.completed && <i className="fa-solid fa-check text-white"></i>}</button></div></div>)}</div>
+                    )}
+
+                    {!isReadOnly && !dayData.isRestDay && (<div className="bg-slate-800 p-4 rounded-xl border border-slate-700"><div className="mb-3"><label className="text-xs text-slate-400 uppercase font-bold">Exercise</label><input type="text" className="w-full bg-slate-900 p-2 rounded border border-slate-700 mt-1 text-white" value={newEx.name} onChange={(e) => setNewEx({...newEx, name: e.target.value})} placeholder="e.g. Bench Press" /></div><div className="grid grid-cols-3 gap-3 mb-4"><div><label className="text-xs text-slate-400 uppercase font-bold">Sets</label><input type="number" className="w-full bg-slate-900 p-2 rounded border border-slate-700 mt-1 text-white" value={newEx.sets} onChange={(e) => setNewEx({...newEx, sets: Number(e.target.value)})} /></div><div><label className="text-xs text-slate-400 uppercase font-bold">Reps</label><input type="number" className="w-full bg-slate-900 p-2 rounded border border-slate-700 mt-1 text-white" value={newEx.reps} onChange={(e) => setNewEx({...newEx, reps: Number(e.target.value)})} /></div><div><label className="text-xs text-slate-400 uppercase font-bold">Kg</label><input type="number" className="w-full bg-slate-900 p-2 rounded border border-slate-700 mt-1 text-white" value={newEx.weight} onChange={(e) => setNewEx({...newEx, weight: Number(e.target.value)})} /></div></div><button onClick={handleAddExercise} className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold flex items-center justify-center gap-2 text-white"><i className="fa-solid fa-plus"></i> Add Exercise</button></div>)}
+                    <NutritionCard meals={dayData.meals} onAddMeal={(m) => handleSaveDay(dateKey, exercises, [...dayData.meals, m], dayData.isRestDay)} onRemoveMeal={(id) => handleSaveDay(dateKey, exercises, dayData.meals.filter(m => m.id !== id), dayData.isRestDay)} readOnly={isReadOnly} />
+                    </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SettingsModal = ({ onClose, onImport, onExport }) => {
+            const [apiKey, setApiKey] = useState('');
+
+            useEffect(() => {
+                const savedKey = localStorage.getItem(STORAGE_KEY_API);
+                if (savedKey) setApiKey(savedKey);
+            }, []);
+
+            const saveApiKey = () => {
+                localStorage.setItem(STORAGE_KEY_API, apiKey);
+                alert("API Key Saved!");
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-slate-900 w-full max-w-sm rounded-2xl p-6 border border-slate-800 shadow-2xl">
+                    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white">Settings</h2><button onClick={onClose} className="p-2 bg-slate-800 rounded-full text-white"><i className="fa-solid fa-times"></i></button></div>
+                    <div className="space-y-4">
+                    
+                    {/* API Key Section */}
+                    <div className="bg-slate-800 p-3 rounded-lg border border-purple-500/30">
+                        <h3 className="font-bold text-purple-400 mb-2 text-sm">🤖 AI Food Scanner</h3>
+                        <div className="flex gap-2">
+                            <input 
+                                type="password" 
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                placeholder="sk-..."
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-2 text-xs text-white"
+                            />
+                            <button onClick={saveApiKey} className="bg-purple-600 text-white px-3 rounded text-xs font-bold">Save</button>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">Get key from platform.openai.com</p>
+                    </div>
+
+                    <button onClick={onExport} className="w-full bg-blue-600 py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2"><i className="fa-solid fa-download"></i> Export Data</button>
+                    <div className="relative">
+                    <input type="file" accept=".json" onChange={onImport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                    <button className="w-full bg-slate-800 py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2 border border-slate-700"><i className="fa-solid fa-upload"></i> Import Data</button>
+                    </div>
+                    <div className="text-xs text-slate-500 text-center mt-4">IronTrack Pro v6.7</div>
+                    </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const [workouts, setWorkouts] = useState({});
+            const [streak, setStreak] = useState(0);
+            const [templates, setTemplates] = useState({});
+            const [schedules, setSchedules] = useState({});
+            const [bodyWeightLog, setBodyWeightLog] = useState([]);
+            const [prs, setPrs] = useState({});
+
+            useEffect(() => {
+                try {
+                    setWorkouts(JSON.parse(localStorage.getItem(STORAGE_KEY_WORKOUTS)) || {});
+                    setStreak(JSON.parse(localStorage.getItem(STORAGE_KEY_STREAK)) || 0);
+                    setTemplates(JSON.parse(localStorage.getItem(STORAGE_KEY_TEMPLATES)) || {});
+                    setSchedules(JSON.parse(localStorage.getItem(STORAGE_KEY_SCHEDULES)) || { 'Default Split': { 0: 'Rest', 1: 'Rest', 2: 'Rest', 3: 'Rest', 4: 'Rest', 5: 'Rest', 6: 'Rest' } });
+                    setBodyWeightLog(JSON.parse(localStorage.getItem(STORAGE_KEY_BODYWEIGHT)) || []);
+                    setPrs(JSON.parse(localStorage.getItem(STORAGE_KEY_PRS)) || {});
+                } catch (e) { console.error("Load error", e); }
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem(STORAGE_KEY_WORKOUTS, JSON.stringify(workouts));
+                localStorage.setItem(STORAGE_KEY_STREAK, JSON.stringify(streak));
+                localStorage.setItem(STORAGE_KEY_TEMPLATES, JSON.stringify(templates));
+                localStorage.setItem(STORAGE_KEY_SCHEDULES, JSON.stringify(schedules));
+                localStorage.setItem(STORAGE_KEY_BODYWEIGHT, JSON.stringify(bodyWeightLog));
+                localStorage.setItem(STORAGE_KEY_PRS, JSON.stringify(prs));
+            }, [workouts, streak, templates, schedules, bodyWeightLog, prs]);
+
+            useEffect(() => {
+                let currentStreak = 0;
+                const today = new Date();
+                for (let i = 0; i < 365; i++) {
+                    const d = new Date(today);
+                    d.setDate(today.getDate() - i);
+                    const key = getFormattedDateKey(d);
+                    const dayData = workouts[key];
+                    
+                    // If data exists
+                    if (dayData) {
+                    const isRestDay = dayData.isRestDay === true;
+                    const hasExercises = dayData.exercises && dayData.exercises.length > 0;
+                    const allCompleted = hasExercises && dayData.exercises.every(ex => ex.completed);
+
+                    if (isRestDay) {
+                    // Rest day: Don't increment, but don't break. Continue to check previous day.
+                    continue;
+                    } else if (allCompleted) {
+                    // Completed workout: Increment streak.
+                    currentStreak++;
+                    } else {
+                    // Incomplete/Empty day
+                    if (i === 0) continue; // If today is incomplete, ignore (don't break yet)
+                    break; // Break streak on past incomplete days
+                    }
+                    } else {
+                    // No data for this day
+                    if (i === 0) continue; // If today is empty, ignore
+                    break; // Break streak
+                    }
+                }
+                setStreak(currentStreak);
+            }, [workouts]);
+
+            const handleSaveDay = (dateKey, exercises, meals, isRestDay = false) => {
+                exercises.forEach(ex => {
+                    if (ex.completed && ex.weight && ex.reps) {
+                    const oneRepMax = Math.round(ex.weight * (1 + ex.reps / 30));
+                    if (oneRepMax > (prs[ex.name] || 0)) {
+                    setPrs(prev => ({ ...prev, [ex.name]: oneRepMax }));
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                    }
+                    }
+                });
+                setWorkouts(prev => ({ ...prev, [dateKey]: { exercises, meals, isRestDay } }));
+            };
+
+            const handleExport = () => {
+                const data = { workouts, streak, templates, schedules, bodyWeightLog, prs };
+                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `irontrack_backup_${getFormattedDateKey(new Date())}.json`;
+                a.click();
+            };
+
+            const handleImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                    const data = JSON.parse(event.target.result);
+                    if (data.workouts) setWorkouts(data.workouts);
+                    if (data.streak) setStreak(data.streak);
+                    if (data.templates) setTemplates(data.templates);
+                    if (data.schedules) setSchedules(data.schedules);
+                    if (data.bodyWeightLog) setBodyWeightLog(data.bodyWeightLog);
+                    if (data.prs) setPrs(data.prs);
+                    alert("Data imported successfully!");
+                    setShowSettings(false);
+                    } catch (err) { alert("Invalid file format"); }
+                };
+                reader.readAsText(file);
+            };
+
+            return (
+                <div className="h-screen w-full bg-slate-900 flex justify-center overflow-hidden">
+                    <div className="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
+                    <div className="flex-1 overflow-y-auto p-4 pb-6">
+                    {activeTab === 'dashboard' && <DashboardView workouts={workouts} streak={streak} bodyWeightLog={bodyWeightLog} setBodyWeightLog={setBodyWeightLog} setSelectedDate={setSelectedDate} handleSaveDay={handleSaveDay} onOpenSettings={() => setShowSettings(true)} prs={prs} />}
+                    {activeTab === 'calendar' && <CalendarView workouts={workouts} setSelectedDate={setSelectedDate} />}
+                    {activeTab === 'templates' && <TemplatesView templates={templates} setTemplates={setTemplates} schedules={schedules} setSchedules={setSchedules} />}
+                    {activeTab === 'analytics' && (
+                    <div className="animate-fade-in pb-6 space-y-6">
+                    <h2 className="text-2xl font-bold mb-4 text-white">Analytics</h2>
+                    <div className="glass-panel p-4 rounded-xl"><h3 className="text-sm font-bold text-slate-400 mb-4">Weekly Volume (kg)</h3><BarChart data={(() => { const d=[]; const t=new Date(); for(let i=6;i>=0;i--){ const dt=new Date(t); dt.setDate(t.getDate()-i); const k=getFormattedDateKey(dt); const dd=workouts[k]; d.push({name:dt.toLocaleDateString(undefined,{weekday:'short'}), volume:dd?dd.exercises.reduce((s,e)=>e.completed?s+(e.weight*e.reps*e.sets):s,0):0}); } return d; })()} labelKey="name" valueKey="volume" color="#3b82f6" title="Volume" /></div>
+                    <div className="glass-panel p-4 rounded-xl"><h3 className="text-sm font-bold text-slate-400 mb-4">Bodyweight Trend</h3><LineChart data={bodyWeightLog.slice(-10).map(e=>({date:new Date(e.date).toLocaleDateString(undefined,{month:'short',day:'numeric'}),weight:e.weight}))} labelKey="date" valueKey="weight" color="#10b981" title="Weight" /></div>
+                    <div className="glass-panel p-4 rounded-xl">
+                    <h3 className="text-sm font-bold text-slate-400 mb-4">Personal Records (Est. 1RM)</h3>
+                    {Object.keys(prs).length === 0 ? <div className="text-slate-500 text-sm">No records yet. Log some heavy sets!</div> : (
+                    <div className="space-y-2">
+                    {Object.entries(prs).sort(([,a],[,b]) => b-a).map(([name, weight]) => (
+                    <div key={name} className="flex justify-between items-center bg-slate-800 p-2 rounded text-white">
+                    <span className="font-medium">{name}</span>
+                    <span className="font-bold text-yellow-400">{weight} kg</span>
+                    </div>
+                    ))}
+                    </div>
+                    )}
+                    </div>
+                    </div>
+                    )}
+                    </div>
+                    <div className="bg-slate-900/90 backdrop-blur border-t border-slate-800 flex justify-around p-4 z-40 shrink-0">
+                    <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 ${activeTab === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}><i className="fa-solid fa-chart-line text-xl"></i><span className="text-[10px] font-bold">Today</span></button>
+                    <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 ${activeTab === 'calendar' ? 'text-blue-500' : 'text-slate-500'}`}><i className="fa-solid fa-calendar text-xl"></i><span className="text-[10px] font-bold">Plan</span></button>
+                    <button onClick={() => setActiveTab('templates')} className={`flex flex-col items-center gap-1 ${activeTab === 'templates' ? 'text-blue-500' : 'text-slate-500'}`}><i className="fa-solid fa-list-check text-xl"></i><span className="text-[10px] font-bold">Templates</span></button>
+                    <button onClick={() => setActiveTab('analytics')} className={`flex flex-col items-center gap-1 ${activeTab === 'analytics' ? 'text-blue-500' : 'text-slate-500'}`}><i className="fa-solid fa-arrow-trend-up text-xl"></i><span className="text-[10px] font-bold">Gains</span></button>
+                    </div>
+                    {selectedDate && <DayModal date={selectedDate} onClose={() => setSelectedDate(null)} workouts={workouts} setWorkouts={setWorkouts} templates={templates} schedules={schedules} handleSaveDay={handleSaveDay} prs={prs} />}
+                    {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onExport={handleExport} onImport={handleImport} />}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
