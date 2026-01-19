@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>IronTrack Pro v6.7 (AI Vision)</title>
+    <title>IronTrack Pro v6.8 (Smart Vision)</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -205,12 +205,12 @@
                                     {
                                         role: "user",
                                         content: [
-                                            { type: "text", text: "Analyze this food image. Identify the main item and estimate total calories and protein (g). Return ONLY a JSON object with keys: 'name' (string, short concise name), 'calories' (number), 'protein' (number). Do not include markdown formatting." },
+                                            { type: "text", text: "Act as an expert nutritionist. Analyze this food image, carefully estimating portion size, density, and visible ingredients (including sauces/oils). Calculate the total calories and protein (g) for the specific amount shown. Return ONLY a JSON object with keys: 'name' (string, concise name including portion estimate), 'calories' (number), 'protein' (number). Do not include markdown formatting." },
                                             { type: "image_url", image_url: { url: base64Image } }
                                         ]
                                     }
                                 ],
-                                max_tokens: 100
+                                max_tokens: 150
                             })
                         });
 
@@ -633,7 +633,7 @@
                     <input type="file" accept=".json" onChange={onImport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     <button className="w-full bg-slate-800 py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2 border border-slate-700"><i className="fa-solid fa-upload"></i> Import Data</button>
                     </div>
-                    <div className="text-xs text-slate-500 text-center mt-4">IronTrack Pro v6.7</div>
+                    <div className="text-xs text-slate-500 text-center mt-4">IronTrack Pro v6.8</div>
                     </div>
                     </div>
                 </div>
@@ -796,3 +796,4 @@
     </script>
 </body>
 </html>
+
